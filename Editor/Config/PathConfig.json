@@ -1,0 +1,9 @@
+{
+    "excelPath": "D:/Unity_Project/Shader作品集/Assets/唐老师框架迭代版/Excel表数据/",
+    "dataClassPath": "D:/Unity_Project/Shader作品集/Assets/唐老师框架迭代版/Runtime/ExcelData工具/DataClass/",
+    "dataContainerPath": "D:/Unity_Project/Shader作品集/Assets/唐老师框架迭代版/Runtime/ExcelData工具/Container/",
+    "binaryOutputPath": "D:/Unity_Project/Shader作品集/Assets/StreamingAssets/Binary/",
+    "jsonOutputPath": "D:/Unity_Project/Shader作品集/Assets/StreamingAssets/Json/",
+    "editorResRootPath": "Assets/Editor/ArtRes/",
+    "abResourceConfigPath": "Assets/AB包配置文件/ABResourceConfig.json"
+}
