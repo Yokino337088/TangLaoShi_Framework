@@ -6,7 +6,8 @@ using System.IO;
 using UnityEngine;
 using UnityEngine.Networking;
 using LitJson;
-using System.Reflection; // 引入 LitJson 库
+using Newtonsoft.Json;
+using System.Reflection; // 引入命名空间
 
 
 /// <summary>
@@ -88,17 +89,38 @@ public class JsonDataMgr : BaseManager<JsonDataMgr>
     /// <typeparam name="K">数据结构类</typeparam>
     public void LoadTable<T, K>()
     {
+        LoadTable<T, K>(false);
+    }
+
+    /// <summary>
+    /// 使用 Newtonsoft.Json 加载表格数据
+    /// </summary>
+    /// <typeparam name="T">数据容器类</typeparam>
+    /// <typeparam name="K">数据结构类</typeparam>
+    public void LoadTableWithNewtonsoft<T, K>()
+    {
+        LoadTable<T, K>(true);
+    }
+
+    /// <summary>
+    /// 主加载接口（根据平台选择同步或异步加载）
+    /// </summary>
+    /// <typeparam name="T">数据容器类</typeparam>
+    /// <typeparam name="K">数据结构类</typeparam>
+    /// <param name="useNewtonsoft">是否使用 Newtonsoft.Json</param>
+    private void LoadTable<T, K>(bool useNewtonsoft)
+    {
 #if UNITY_ANDROID || UNITY_IOS
         // 移动平台异步加载
-        MonoMgr.Instance.StartCoroutine(LoadTableAsync<T, K>());
+        MonoMgr.Instance.StartCoroutine(LoadTableAsync<T, K>(useNewtonsoft));
 #else
         // PC/编辑器同步加载
-        LoadTableDesktop<T, K>();
+        LoadTableDesktop<T, K>(useNewtonsoft);
 #endif
     }
 
     // Android/iOS 专用异步加载表
-    private IEnumerator LoadTableAsync<T, K>()
+    private IEnumerator LoadTableAsync<T, K>(bool useNewtonsoft = false)
     {
         // 拼接文件名和路径
         string fileName = typeof(K).Name + ".json";
@@ -118,12 +140,12 @@ public class JsonDataMgr : BaseManager<JsonDataMgr>
             }
 
             // 处理 JSON 数据
-            ProcessJsonData<T, K>(request.downloadHandler.text);
+            ProcessJsonData<T, K>(request.downloadHandler.text, useNewtonsoft);
         }
     }
 
     // PC/Editor 专用同步加载表
-    private void LoadTableDesktop<T, K>()
+    private void LoadTableDesktop<T, K>(bool useNewtonsoft = false)
     {
         // 拼接文件名和路径
         string fileName = typeof(K).Name + ".json";
@@ -141,7 +163,7 @@ public class JsonDataMgr : BaseManager<JsonDataMgr>
             // 读取全部文本
             string jsonText = File.ReadAllText(filePath);
             // 处理 JSON 数据
-            ProcessJsonData<T, K>(jsonText);
+            ProcessJsonData<T, K>(jsonText, useNewtonsoft);
         }
         catch (Exception ex)
         {
@@ -156,15 +178,23 @@ public class JsonDataMgr : BaseManager<JsonDataMgr>
     /// <typeparam name="T"></typeparam>
     /// <typeparam name="K"></typeparam>
     /// <param name="jsonText"></param>
-    private void ProcessJsonData<T, K>(string jsonText)
-    {                                                                   
+    /// <param name="useNewtonsoft"></param>
+    private void ProcessJsonData<T, K>(string jsonText, bool useNewtonsoft = true)
+    {                                                                    
         try
         {
-            // 使用 LitJson 反序列化
-            //List<K> dataList = JsonMapper.ToObject<List<K>>(jsonText);
-            Dictionary<string,K> dataDic = JsonMapper.ToObject<Dictionary<string, K>>(jsonText);
+            Dictionary<string, K> dataDic;
+            if (useNewtonsoft)
+            {
+                // 使用 Newtonsoft.Json 反序列化
+                dataDic = JsonConvert.DeserializeObject<Dictionary<string, K>>(jsonText);
+            }
+            else
+            {
+                // 使用 LitJson 反序列化
+                dataDic = JsonMapper.ToObject<Dictionary<string, K>>(jsonText);
+            }
             
-
             Type containerType = typeof(T); // 容器类型
             object containerObj = Activator.CreateInstance(containerType); // 创建容器对象
             object dicObject = containerType.GetField("dataDic").GetValue(containerObj); // 获取字典对象
@@ -175,7 +205,7 @@ public class JsonDataMgr : BaseManager<JsonDataMgr>
 
             int successCount = 0; // 成功计数
             Type classType = typeof(K); // 数据类类型
-            FieldInfo keyField = classType.GetField("id"); // 假设主键字段名为 "Id"
+            FieldInfo keyField = classType.GetField("id"); // 假设主键字段名为 "id"
 
             // 遍历所有数据
             foreach (K dataObj in dataDic.Values)
@@ -202,6 +232,12 @@ public class JsonDataMgr : BaseManager<JsonDataMgr>
         {
             LogSystem.Error($"处理 JSON 数据失败: {typeof(T).Name}\n{ex}");
         }
+    }
+
+    // 使用 Newtonsoft.Json 处理 JSON 数据
+    private void ProcessNewtonsoftJsonData<T, K>(string jsonText)
+    {
+        ProcessJsonData<T, K>(jsonText, true);
     }
 
     // 验证主键值是否有效
@@ -253,6 +289,27 @@ public class JsonDataMgr : BaseManager<JsonDataMgr>
     // 保存对象到本地文件（可读写数据）
     public void Save(object obj, string fileName)
     {
+        Save(obj, fileName, false);
+    }
+
+    /// <summary>
+    /// 使用 Newtonsoft.Json 保存对象到本地文件
+    /// </summary>
+    /// <param name="obj"></param>
+    /// <param name="fileName"></param>
+    public void SaveWithNewtonsoft(object obj, string fileName)
+    {
+        Save(obj, fileName, true);
+    }
+
+    /// <summary>
+    /// 保存对象到本地文件（可读写数据）
+    /// </summary>
+    /// <param name="obj"></param>
+    /// <param name="fileName"></param>
+    /// <param name="useNewtonsoft"></param>
+    private void Save(object obj, string fileName, bool useNewtonsoft)
+    {
         // 检查存档目录
         if (!Directory.Exists(SAVE_PATH))
             Directory.CreateDirectory(SAVE_PATH);
@@ -260,10 +317,20 @@ public class JsonDataMgr : BaseManager<JsonDataMgr>
         string filePath = Path.Combine(SAVE_PATH, fileName + ".json");
         try
         {
-            // 使用 LitJson 序列化
-            string jsonText = JsonMapper.ToJson(obj);
+            string jsonText;
+            if (useNewtonsoft)
+            {
+                // 使用 Newtonsoft.Json 序列化
+                jsonText = JsonConvert.SerializeObject(obj, Formatting.Indented);
+                LogSystem.Info($"使用 Newtonsoft.Json 保存数据到: {filePath}");
+            }
+            else
+            {
+                // 使用 LitJson 序列化
+                jsonText = JsonMapper.ToJson(obj);
+                LogSystem.Info($"使用 LitJson 保存数据到: {filePath}");
+            }
             File.WriteAllText(filePath, jsonText);
-            LogSystem.Info($"数据已保存到: {filePath}");
         }
         catch (Exception ex)
         {
@@ -273,6 +340,29 @@ public class JsonDataMgr : BaseManager<JsonDataMgr>
 
     // 加载本地文件为对象（可读写数据）
     public T Load<T>(string fileName) where T : class
+    {
+        return Load<T>(fileName, false);
+    }
+
+    /// <summary>
+    /// 使用 Newtonsoft.Json 加载本地文件为对象
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <param name="fileName"></param>
+    /// <returns></returns>
+    public T LoadWithNewtonsoft<T>(string fileName) where T : class
+    {
+        return Load<T>(fileName, true);
+    }
+
+    /// <summary>
+    /// 加载本地文件为对象（可读写数据）
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <param name="fileName"></param>
+    /// <param name="useNewtonsoft"></param>
+    /// <returns></returns>
+    private T Load<T>(string fileName, bool useNewtonsoft) where T : class
     {
         string filePath = Path.Combine(SAVE_PATH, fileName + ".json");
 
@@ -286,8 +376,16 @@ public class JsonDataMgr : BaseManager<JsonDataMgr>
         try
         {
             string jsonText = File.ReadAllText(filePath);
-            // 使用 LitJson 反序列化
-            return JsonMapper.ToObject<T>(jsonText);
+            if (useNewtonsoft)
+            {
+                // 使用 Newtonsoft.Json 反序列化
+                return JsonConvert.DeserializeObject<T>(jsonText);
+            }
+            else
+            {
+                // 使用 LitJson 反序列化
+                return JsonMapper.ToObject<T>(jsonText);
+            }
         }
         catch (Exception ex)
         {
@@ -358,13 +456,34 @@ public class JsonDataMgr : BaseManager<JsonDataMgr>
     /// <typeparam name="K"></typeparam>
     public void LoadTableFromAB<T,K>()
     {
+        LoadTableFromAB<T, K>(false);
+    }
+
+    /// <summary>
+    /// 使用 Newtonsoft.Json 从 Ab 包中加载表格数据
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <typeparam name="K"></typeparam>
+    public void LoadTableFromABWithNewtonsoft<T, K>()
+    {
+        LoadTableFromAB<T, K>(true);
+    }
+
+    /// <summary>
+    /// 从Ab包中加载表格数据
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <typeparam name="K"></typeparam>
+    /// <param name="useNewtonsoft"></param>
+    private void LoadTableFromAB<T,K>(bool useNewtonsoft = true)
+    {
         string fileName = typeof(K).Name;
         LogSystem.Info(fileName);
         ABResMgr.Instance.LoadResAsync<TextAsset>("json", fileName,(obj) =>
         {
             if (obj != null)
             {
-                ProcessJsonData<T, K>(obj.text);
+                ProcessJsonData<T, K>(obj.text, useNewtonsoft);
             }
             else
             {

@@ -23,6 +23,9 @@ public class ABMgr : BaseManager<ABMgr>
     //AB包不能够重复加载 否则会报错
     //字典知识 用来存储 AB包对象
     private Dictionary<string, AssetBundle> abDic = new Dictionary<string, AssetBundle>();
+    
+    //引用计数字典
+    private Dictionary<string, int> abRefCount = new Dictionary<string, int>();
 
     /// <summary>
     /// 获取AB包加载路径 - streamingAssetsPath
@@ -191,6 +194,7 @@ public class ABMgr : BaseManager<ABMgr>
                     LogSystem.Error("无法加载依赖包: " + strs[i]);
                 }
             }
+            AddRefCount(strs[i]);
         }
     }
 
@@ -219,6 +223,8 @@ public class ABMgr : BaseManager<ABMgr>
                 return null;
             }
         }
+        //增加目标包的引用计数
+        AddRefCount(abName);
 
         //得到加载出来的资源
         T obj = abDic[abName].LoadAsset<T>(resName);
@@ -294,6 +300,8 @@ public class ABMgr : BaseManager<ABMgr>
                     await UniTask.Yield();
                 }
             }
+            //增加依赖包的引用计数
+            AddRefCount(strs[i]);
         }
         //加载目标包
         if (!abDic.ContainsKey(abName))
@@ -333,6 +341,8 @@ public class ABMgr : BaseManager<ABMgr>
                 await UniTask.Yield();
             }
         }
+        //增加目标包的引用计数
+        AddRefCount(abName);
 
         //同步加载AB包中的资源
         if (isSync)
@@ -416,6 +426,8 @@ public class ABMgr : BaseManager<ABMgr>
                     await UniTask.Yield();
                 }
             }
+            //增加依赖包的引用计数
+            AddRefCount(strs[i]);
         }
         //加载目标包
         if (!abDic.ContainsKey(abName))
@@ -445,6 +457,8 @@ public class ABMgr : BaseManager<ABMgr>
                 await UniTask.Yield();
             }
         }
+        //增加目标包的引用计数
+        AddRefCount(abName);
 
         if (isSync)
         {
@@ -509,6 +523,8 @@ public class ABMgr : BaseManager<ABMgr>
                     await UniTask.Yield();
                 }
             }
+            //增加依赖包的引用计数
+            AddRefCount(strs[i]);
         }
         //加载目标包
         if (!abDic.ContainsKey(abName))
@@ -538,6 +554,8 @@ public class ABMgr : BaseManager<ABMgr>
                 await UniTask.Yield();
             }
         }
+        //增加目标包的引用计数
+        AddRefCount(abName);
 
         if (isSync)
         {
@@ -564,8 +582,8 @@ public class ABMgr : BaseManager<ABMgr>
                 callBackResult(false);
                 return;
             }
-            abDic[name].Unload(false);
-            abDic.Remove(name);
+            //使用ReleaseRes方法来释放资源，会自动处理引用计数
+            ReleaseRes(name);
             //卸载成功
             callBackResult(true);
         }
@@ -577,7 +595,340 @@ public class ABMgr : BaseManager<ABMgr>
         //由于AB包都是异步加载了 因此在清理之前 停止所有异步操作
         AssetBundle.UnloadAllAssetBundles(false);
         abDic.Clear();
+        abRefCount.Clear();
         //卸载主包
         mainAB = null;
     }
+    
+    /// <summary>
+    /// 增加AB包的引用计数
+    /// </summary>
+    private void AddRefCount(string abName)
+    {
+        if (abRefCount.ContainsKey(abName))
+        {
+            abRefCount[abName]++;
+        }
+        else
+        {
+            abRefCount.Add(abName, 1);
+        }
+        LogSystem.Info($"增加引用计数: {abName} - {abRefCount[abName]}");
+    }
+    
+    /// <summary>
+    /// 减少AB包的引用计数
+    /// </summary>
+    private void SubRefCount(string abName)
+    {
+        if (abRefCount.ContainsKey(abName))
+        {
+            abRefCount[abName]--;
+            LogSystem.Info($"减少引用计数: {abName} - {abRefCount[abName]}");
+            if (abRefCount[abName] <= 0)
+            {
+                if (abDic.ContainsKey(abName) && abDic[abName] != null)
+                {
+                    abDic[abName].Unload(false);
+                    abDic.Remove(abName);
+                    abRefCount.Remove(abName);
+                    LogSystem.Info($"引用计数为0，卸载AB包: {abName}");
+                }
+            }
+        }
+    }
+    
+    /// <summary>
+    /// 释放资源，减少AB包的引用计数
+    /// </summary>
+    public void ReleaseRes(string abName)
+    {
+        LoadMainAB();
+        //获取依赖包
+        string[] strs = manifest.GetAllDependencies(abName);
+        for (int i = 0; i < strs.Length; i++)
+        {
+            SubRefCount(strs[i]);
+        }
+        //减少目标包的引用计数
+        SubRefCount(abName);
+    }
+    
+    /// <summary>
+    /// 获取AB包的引用计数
+    /// </summary>
+    public int GetRefCount(string abName)
+    {
+        return abRefCount.ContainsKey(abName) ? abRefCount[abName] : 0;
+    }
+
+    #region 场景预加载功能
+
+    /// <summary>
+    /// 预加载多个AB包（用于过场景时提前加载资源）
+    /// 会自动加载所有依赖包
+    /// </summary>
+    /// <param name="abNames">需要预加载的AB包名称列表</param>
+    /// <param name="progressCallback">进度回调，参数为当前进度(0-1)</param>
+    /// <param name="completeCallback">完成回调，参数为是否全部加载成功</param>
+    public async void PreloadABPackages(List<string> abNames, UnityAction<float> progressCallback = null, UnityAction<bool> completeCallback = null)
+    {
+        bool allSuccess = await PreloadABPackagesAsync(abNames, progressCallback);
+        completeCallback?.Invoke(allSuccess);
+    }
+
+    /// <summary>
+    /// 预加载多个AB包的异步实现
+    /// </summary>
+    /// <param name="abNames">需要预加载的AB包名称列表</param>
+    /// <param name="progressCallback">进度回调</param>
+    /// <returns>是否全部加载成功</returns>
+    private async UniTask<bool> PreloadABPackagesAsync(List<string> abNames, UnityAction<float> progressCallback)
+    {
+        if (abNames == null || abNames.Count == 0)
+        {
+            LogSystem.Warning("预加载列表为空，无需加载");
+            progressCallback?.Invoke(1f);
+            return true;
+        }
+
+        // 加载主包
+        LoadMainAB();
+        if (manifest == null)
+        {
+            LogSystem.Error("无法加载主包Manifest，预加载失败");
+            return false;
+        }
+
+        // 收集所有需要加载的AB包（包括依赖包）
+        HashSet<string> allPackagesToLoad = new HashSet<string>();
+        foreach (string abName in abNames)
+        {
+            if (string.IsNullOrEmpty(abName))
+                continue;
+
+            // 添加目标包
+            allPackagesToLoad.Add(abName);
+
+            // 获取并添加所有依赖包
+            string[] dependencies = manifest.GetAllDependencies(abName);
+            foreach (string dep in dependencies)
+            {
+                allPackagesToLoad.Add(dep);
+            }
+        }
+
+        LogSystem.Info($"开始预加载，共 {allPackagesToLoad.Count} 个AB包（含依赖）");
+
+        // 转换为列表以便索引
+        List<string> packageList = new List<string>(allPackagesToLoad);
+        int totalCount = packageList.Count;
+        int successCount = 0;
+        int failCount = 0;
+
+        // 创建加载任务列表
+        List<UniTask<bool>> loadTasks = new List<UniTask<bool>>();
+
+        for (int i = 0; i < packageList.Count; i++)
+        {
+            string packageName = packageList[i];
+            int index = i; // 捕获索引用于进度计算
+
+            // 创建加载任务
+            UniTask<bool> task = PreloadSingleABPackage(packageName, () =>
+            {
+                // 单个包加载完成时的进度回调
+                float progress = (float)(index + 1) / totalCount;
+                progressCallback?.Invoke(progress);
+            });
+
+            loadTasks.Add(task);
+        }
+
+        // 等待所有加载任务完成
+        bool[] results = await UniTask.WhenAll(loadTasks);
+
+        // 统计结果
+        foreach (bool result in results)
+        {
+            if (result)
+                successCount++;
+            else
+                failCount++;
+        }
+
+        LogSystem.Info($"预加载完成：成功 {successCount} 个，失败 {failCount} 个");
+
+        // 确保最终进度为1
+        progressCallback?.Invoke(1f);
+
+        return failCount == 0;
+    }
+
+    /// <summary>
+    /// 预加载单个AB包
+    /// </summary>
+    /// <param name="abName">AB包名称</param>
+    /// <param name="onComplete">单个包加载完成回调</param>
+    /// <returns>是否加载成功</returns>
+    private async UniTask<bool> PreloadSingleABPackage(string abName, UnityAction onComplete)
+    {
+        try
+        {
+            // 检查是否已经加载
+            if (abDic.ContainsKey(abName) && abDic[abName] != null)
+            {
+                // 已加载，增加引用计数
+                AddRefCount(abName);
+                LogSystem.Info($"预加载：AB包 {abName} 已存在，增加引用计数");
+                onComplete?.Invoke();
+                return true;
+            }
+
+            // 检查是否正在加载中
+            if (abDic.ContainsKey(abName) && abDic[abName] == null)
+            {
+                // 正在加载中，等待加载完成
+                LogSystem.Info($"预加载：AB包 {abName} 正在加载中，等待完成");
+                while (abDic[abName] == null)
+                {
+                    await UniTask.Yield();
+                }
+                AddRefCount(abName);
+                onComplete?.Invoke();
+                return true;
+            }
+
+            // 开始异步加载
+            abDic.Add(abName, null); // 标记为加载中
+            LogSystem.Info($"预加载：开始加载AB包 {abName}");
+
+            AssetBundle bundle = await LoadAssetBundleFromMultiplePathsAsync(abName);
+
+            if (bundle != null)
+            {
+                abDic[abName] = bundle;
+                AddRefCount(abName);
+                LogSystem.Info($"预加载：AB包 {abName} 加载成功");
+                onComplete?.Invoke();
+                return true;
+            }
+            else
+            {
+                // 加载失败，从字典中移除
+                abDic.Remove(abName);
+                LogSystem.Error($"预加载：AB包 {abName} 加载失败");
+                onComplete?.Invoke();
+                return false;
+            }
+        }
+        catch (System.Exception e)
+        {
+            LogSystem.Error($"预加载AB包 {abName} 时发生异常: {e.Message}");
+            if (abDic.ContainsKey(abName) && abDic[abName] == null)
+            {
+                abDic.Remove(abName);
+            }
+            onComplete?.Invoke();
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 预加载AB包并加载其中的所有资源（用于需要立即使用所有资源的场景）
+    /// </summary>
+    /// <param name="abName">AB包名称</param>
+    /// <param name="progressCallback">进度回调</param>
+    /// <param name="completeCallback">完成回调，返回加载的所有资源</param>
+    public async void PreloadABPackageWithAllAssets(string abName, UnityAction<float> progressCallback = null, UnityAction<Object[]> completeCallback = null)
+    {
+        Object[] assets = await PreloadABPackageWithAllAssetsAsync(abName, progressCallback);
+        completeCallback?.Invoke(assets);
+    }
+
+    /// <summary>
+    /// 预加载AB包并加载其中所有资源的异步实现
+    /// </summary>
+    private async UniTask<Object[]> PreloadABPackageWithAllAssetsAsync(string abName, UnityAction<float> progressCallback)
+    {
+        // 先预加载AB包
+        bool success = await PreloadSingleABPackage(abName, null);
+        if (!success)
+        {
+            LogSystem.Error($"预加载AB包 {abName} 失败，无法加载资源");
+            return null;
+        }
+
+        // 加载包中所有资源
+        if (abDic.ContainsKey(abName) && abDic[abName] != null)
+        {
+            AssetBundle bundle = abDic[abName];
+            AssetBundleRequest request = bundle.LoadAllAssetsAsync();
+            
+            // 监听进度
+            while (!request.isDone)
+            {
+                progressCallback?.Invoke(request.progress);
+                await UniTask.Yield();
+            }
+
+            progressCallback?.Invoke(1f);
+            LogSystem.Info($"AB包 {abName} 中所有资源加载完成，共 {request.allAssets.Length} 个");
+            return request.allAssets;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 取消预加载（释放预加载但未使用的AB包）
+    /// </summary>
+    /// <param name="abNames">需要取消预加载的AB包名称列表</param>
+    public void CancelPreload(List<string> abNames)
+    {
+        if (abNames == null || abNames.Count == 0)
+            return;
+
+        foreach (string abName in abNames)
+        {
+            if (abRefCount.ContainsKey(abName) && abRefCount[abName] > 0)
+            {
+                // 减少引用计数，如果为0会自动卸载
+                ReleaseRes(abName);
+                LogSystem.Info($"取消预加载：释放AB包 {abName}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// 获取预加载状态
+    /// </summary>
+    /// <param name="abName">AB包名称</param>
+    /// <returns>预加载状态</returns>
+    public PreloadState GetPreloadState(string abName)
+    {
+        if (!abDic.ContainsKey(abName))
+        {
+            return PreloadState.NotLoaded;
+        }
+
+        if (abDic[abName] == null)
+        {
+            return PreloadState.Loading;
+        }
+
+        return PreloadState.Loaded;
+    }
+
+    /// <summary>
+    /// AB包预加载状态枚举
+    /// </summary>
+    public enum PreloadState
+    {
+        NotLoaded,  // 未加载
+        Loading,    // 加载中
+        Loaded      // 已加载
+    }
+
+    #endregion
 }

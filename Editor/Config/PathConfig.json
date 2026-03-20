@@ -1,9 +1,9 @@
 {
-    "excelPath": "D:/Unity_Project/Shader作品集/Assets/唐老师框架迭代版/Excel表数据/",
-    "dataClassPath": "D:/Unity_Project/Shader作品集/Assets/唐老师框架迭代版/Runtime/ExcelData工具/DataClass/",
-    "dataContainerPath": "D:/Unity_Project/Shader作品集/Assets/唐老师框架迭代版/Runtime/ExcelData工具/Container/",
-    "binaryOutputPath": "D:/Unity_Project/Shader作品集/Assets/StreamingAssets/Binary/",
-    "jsonOutputPath": "D:/Unity_Project/Shader作品集/Assets/StreamingAssets/Json/",
-    "editorResRootPath": "Assets/Editor/ArtRes/",
-    "abResourceConfigPath": "Assets/AB包配置文件/ABResourceConfig.json"
+    "excelPath": "D:/球球大作战根目录/球球大作战客户端/Assets/资源统一放置点/Excel配置表",
+    "dataClassPath": "D:/球球大作战根目录/球球大作战客户端/Assets/Scripts/Excel导表代码/数据结构类",
+    "dataContainerPath": "D:/球球大作战根目录/球球大作战客户端/Assets/Scripts/Excel导表代码/容器类",
+    "binaryOutputPath": "D:/球球大作战根目录/球球大作战客户端/Assets/资源统一放置点/Excel导出二进制",
+    "jsonOutputPath": "D:/球球大作战根目录/球球大作战客户端/Assets/资源统一放置点/Excel导出Json",
+    "editorResRootPath": "Assets/资源统一放置点",
+    "abResourceConfigPath": "Assets/资源统一放置点/AB包配置文件/ABResourceConfig.json"
 }

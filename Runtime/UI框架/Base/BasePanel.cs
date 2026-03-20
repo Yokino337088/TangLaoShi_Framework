@@ -62,14 +62,15 @@ public abstract class BasePanel : MonoBehaviour
         FindChildrenControl<Toggle>();
         FindChildrenControl<Slider>();
         FindChildrenControl<InputField>();
+        FindChildrenControl<TMP_InputField>();
         FindChildrenControl<ScrollRect>();
         FindChildrenControl<Dropdown>();
         //为了方便获取到文本和图片 只要能找到的都存储起来
         //之后也可以通过需要用到的控件名称来获取对应的控件
         FindChildrenControl<Text>();
         FindChildrenControl<TextMeshPro>();
-        FindChildrenControl<Image>();
-
+        FindChildrenControl<TextMeshProUGUI>();
+        FindChildrenControl<Image>();       
         CurrentState = PanelState.Inactive;
     }
 

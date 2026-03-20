@@ -1,4 +1,4 @@
-﻿
+
 // 引入Excel相关库
 using Excel;
 // 引入系统命名空间
@@ -10,7 +10,8 @@ using System.Text;
 using UnityEditor;
 using UnityEngine;
 using LitJson;
-using System.Collections.Generic;  // 添加 LitJson 命名空间引用
+using Newtonsoft.Json;
+using System.Collections.Generic;  // 添加命名空间引用
 
 
 
@@ -83,6 +84,7 @@ public class ExcelTool
                 // 生成二进制数据文件
                 GenerateExcelBinary(table);
                 
+                
             }
         }
         // 刷新Unity资源数据库
@@ -90,8 +92,19 @@ public class ExcelTool
     }
 
 
-    [MenuItem("唐老师工具/读取Excel表数据/生成Json数据")]
+    [MenuItem("唐老师工具/读取Excel表数据/生成Json数据(LitJson)")]
     private static void GenerateExcelJsonInfo()
+    {
+        GenerateExcelJsonInfo(false);
+    }
+
+    [MenuItem("唐老师工具/读取Excel表数据/生成Json数据(Newtonsoft)")]
+    private static void GenerateExcelNewtonsoftJsonInfo()
+    {
+        GenerateExcelJsonInfo(true);
+    }
+
+    private static void GenerateExcelJsonInfo(bool useNewtonsoft)
     {
         // 创建Excel目录（如果不存在）
         DirectoryInfo dInfo = Directory.CreateDirectory(EXCEL_PATH);
@@ -122,8 +135,8 @@ public class ExcelTool
                 GenerateExcelDataClass(table);
                 // 生成数据容器类
                 GenerateExcelContainer(table);
-                // 生成二进制数据文件
-                GenerateExcelJson(table);
+                // 生成json数据文件
+                GenerateExcelJson(table,useNewtonsoft);
 
             }
         }
@@ -137,6 +150,11 @@ public class ExcelTool
         // 如果数据类目录不存在则创建
         if (!Directory.Exists(DATA_CLASS_PATH))
             Directory.CreateDirectory(DATA_CLASS_PATH);
+        // 清空数据类目录中的所有文件
+        foreach (string file in Directory.GetFiles(DATA_CLASS_PATH))
+        {
+            File.Delete(file);
+        }
 
         // 用于拼接类代码
         StringBuilder sb = new StringBuilder();
@@ -168,7 +186,9 @@ public class ExcelTool
         sb.AppendLine("}");
 
         // 写入到文件
-        File.WriteAllText(DATA_CLASS_PATH + table.TableName + ".cs", sb.ToString());
+        string filePath = Path.Combine(DATA_CLASS_PATH, table.TableName + ".cs");
+        File.WriteAllText(filePath, sb.ToString());
+        Debug.Log($"生成数据类文件: {filePath}");
     }
 
 
@@ -178,6 +198,11 @@ public class ExcelTool
         // 如果容器目录不存在则创建
         if (!Directory.Exists(DATA_CONTAINER_PATH))
             Directory.CreateDirectory(DATA_CONTAINER_PATH);
+        // 清空容器目录中的所有文件
+        foreach (string file in Directory.GetFiles(DATA_CONTAINER_PATH))
+        {
+            File.Delete(file);
+        }
 
         // 获取主键索引
         int keyIndex = GetKeyIndex(table);
@@ -194,7 +219,9 @@ public class {table.TableName}Container
 }}";
 
         // 写入到文件
-        File.WriteAllText(DATA_CONTAINER_PATH + table.TableName + "Container.cs", str);
+        string filePath = Path.Combine(DATA_CONTAINER_PATH, table.TableName + "Container.cs");
+        File.WriteAllText(filePath, str);
+        Debug.Log($"生成数据容器类文件: {filePath}");
     }
 
 
@@ -204,6 +231,11 @@ public class {table.TableName}Container
         // 如果二进制目录不存在则创建
         if (!Directory.Exists(BINARY_OUTPUT_PATH))
             Directory.CreateDirectory(BINARY_OUTPUT_PATH);
+        // 清空二进制目录中的所有文件
+        foreach (string file in Directory.GetFiles(BINARY_OUTPUT_PATH))
+        {
+            File.Delete(file);
+        }
 
         // 拼接输出文件路径
         string filePath = Path.Combine(BINARY_OUTPUT_PATH, table.TableName + ".tang");
@@ -357,11 +389,16 @@ public class {table.TableName}Container
     }
 
     // 新增：将 Excel 数据转换为 JSON 文件
-    private static void GenerateExcelJson(DataTable table)
+    private static void GenerateExcelJson(DataTable table, bool useNewtonsoft = true)
     {
         // 创建 JSON 目录（如果不存在）
         if (!Directory.Exists(JSON_OUTPUT_PATH))
             Directory.CreateDirectory(JSON_OUTPUT_PATH);
+        // 清空JSON目录中的所有文件
+        foreach (string file in Directory.GetFiles(JSON_OUTPUT_PATH))
+        {
+            File.Delete(file);
+        }
 
         // 获取主键索引和字段信息
         int keyIndex = GetKeyIndex(table);
@@ -419,13 +456,24 @@ public class {table.TableName}Container
         {
             string filePath = Path.Combine(JSON_OUTPUT_PATH, table.TableName + ".json");
             
-            // 使用 LitJson 序列化，启用格式化输出
-            JsonWriter writer = new JsonWriter();
-            writer.PrettyPrint = true;  // 格式化 JSON 便于阅读
-            JsonMapper.ToJson(dataDict, writer);
+            string jsonText;
+            if (useNewtonsoft)
+            {
+                // 使用 Newtonsoft.Json 序列化，启用格式化输出
+                jsonText = JsonConvert.SerializeObject(dataDict, Formatting.Indented);
+                Debug.Log($"成功使用 Newtonsoft.Json 生成 JSON 文件: {filePath} (有效行数: {validRowCount})");
+            }
+            else
+            {
+                // 使用 LitJson 序列化，启用格式化输出
+                LitJson.JsonWriter writer = new LitJson.JsonWriter();
+                writer.PrettyPrint = true;  // 格式化 JSON 便于阅读
+                JsonMapper.ToJson(dataDict, writer);
+                jsonText = writer.ToString();
+                Debug.Log($"成功使用 LitJson 生成 JSON 文件: {filePath} (有效行数: {validRowCount})");
+            }
             
-            File.WriteAllText(filePath, writer.ToString());
-            Debug.Log($"成功生成 JSON 文件: {filePath} (有效行数: {validRowCount})");
+            File.WriteAllText(filePath, jsonText);
         }
         catch (Exception ex)
         {

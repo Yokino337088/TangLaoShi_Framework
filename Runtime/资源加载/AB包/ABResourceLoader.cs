@@ -256,4 +256,216 @@ public class ABResourceLoader : BaseManager<ABResourceLoader>
     {
         public List<ABResourceInfo> resources;
     }
+
+    #region 编辑器环境预加载功能
+
+    /// <summary>
+    /// 预加载资源（编辑器环境下模拟预加载行为）
+    /// 在编辑器模式下，预加载实际上是验证资源是否存在并缓存资源信息
+    /// </summary>
+    /// <param name="abNames">AB包名称列表（在编辑器下用于查找对应目录的资源）</param>
+    /// <param name="progressCallback">进度回调(0-1)</param>
+    /// <param name="completeCallback">完成回调，参数为是否全部验证成功</param>
+    public async void PreloadResources(List<string> abNames, UnityAction<float> progressCallback = null, UnityAction<bool> completeCallback = null)
+    {
+        bool allSuccess = await PreloadResourcesAsync(abNames, progressCallback);
+        completeCallback?.Invoke(allSuccess);
+    }
+
+    /// <summary>
+    /// 预加载资源的异步实现（编辑器环境）
+    /// </summary>
+    private async UniTask<bool> PreloadResourcesAsync(List<string> abNames, UnityAction<float> progressCallback)
+    {
+        if (abNames == null || abNames.Count == 0)
+        {
+            LogSystem.Warning("预加载列表为空，无需加载");
+            progressCallback?.Invoke(1f);
+            return true;
+        }
+
+        LogSystem.Info($"编辑器模式：开始预加载验证，共 {abNames.Count} 个AB包");
+
+        int totalCount = abNames.Count;
+        int successCount = 0;
+        int failCount = 0;
+
+        for (int i = 0; i < abNames.Count; i++)
+        {
+            string abName = abNames[i];
+            float progress = (float)(i + 1) / totalCount;
+
+            if (string.IsNullOrEmpty(abName))
+            {
+                progressCallback?.Invoke(progress);
+                continue;
+            }
+
+            // 在编辑器模式下，验证该AB包对应的资源是否存在
+            bool exists = ValidateABPackageResources(abName);
+            if (exists)
+            {
+                successCount++;
+                LogSystem.Info($"编辑器预加载验证：AB包 {abName} 验证通过");
+            }
+            else
+            {
+                failCount++;
+                LogSystem.Warning($"编辑器预加载验证：AB包 {abName} 未找到对应资源");
+            }
+
+            progressCallback?.Invoke(progress);
+
+            // 每处理一个包等待一帧，避免阻塞
+            await UniTask.Yield();
+        }
+
+        LogSystem.Info($"编辑器预加载验证完成：成功 {successCount} 个，失败 {failCount} 个");
+        progressCallback?.Invoke(1f);
+
+        return failCount == 0;
+    }
+
+    /// <summary>
+    /// 验证AB包对应的资源是否存在（编辑器环境）
+    /// </summary>
+    private bool ValidateABPackageResources(string abName)
+    {
+#if UNITY_EDITOR
+        // 在资源配置中查找该AB包的所有资源
+        bool found = false;
+        foreach (var kvp in resourceInfoMap)
+        {
+            if (kvp.Value.ABPackageName == abName)
+            {
+                found = true;
+                // 验证资源文件是否存在
+                if (!System.IO.File.Exists(kvp.Value.ResourcePath))
+                {
+                    if (!kvp.Value.ResourcePath.StartsWith("Assets/"))
+                    {
+                        string fullPath = System.IO.Path.Combine(Application.dataPath, kvp.Value.ResourcePath);
+                        if (!System.IO.File.Exists(fullPath))
+                        {
+                            LogSystem.Warning($"资源文件不存在: {kvp.Value.ResourcePath}");
+                        }
+                    }
+                }
+            }
+        }
+
+        // 如果没有在配置中找到，尝试从AssetDatabase查找
+        if (!found)
+        {
+            // 尝试查找该AB包名称对应的资源文件夹
+            string[] guids = UnityEditor.AssetDatabase.FindAssets("", new[] { "Assets" });
+            foreach (string guid in guids)
+            {
+                string path = UnityEditor.AssetDatabase.GUIDToAssetPath(guid);
+                UnityEditor.AssetImporter importer = UnityEditor.AssetImporter.GetAtPath(path);
+                if (importer != null && importer.assetBundleName == abName)
+                {
+                    found = true;
+                    break;
+                }
+            }
+        }
+
+        return found;
+#else
+        // 非编辑器模式下直接返回true
+        return true;
+#endif
+    }
+
+    /// <summary>
+    /// 预加载指定AB包中的所有资源（编辑器环境）
+    /// 在编辑器下会加载所有相关资源到内存中
+    /// </summary>
+    public async void PreloadAllAssetsInPackage(string abName, UnityAction<float> progressCallback = null, UnityAction<Object[]> completeCallback = null)
+    {
+        Object[] assets = await PreloadAllAssetsInPackageAsync(abName, progressCallback);
+        completeCallback?.Invoke(assets);
+    }
+
+    /// <summary>
+    /// 预加载AB包中所有资源的异步实现（编辑器环境）
+    /// </summary>
+    private async UniTask<Object[]> PreloadAllAssetsInPackageAsync(string abName, UnityAction<float> progressCallback)
+    {
+#if UNITY_EDITOR
+        LogSystem.Info($"编辑器模式：开始预加载AB包 {abName} 中的所有资源");
+
+        // 收集该AB包下的所有资源
+        List<Object> loadedAssets = new List<Object>();
+        List<string> resourcePaths = new List<string>();
+
+        // 从配置中查找
+        foreach (var kvp in resourceInfoMap)
+        {
+            if (kvp.Value.ABPackageName == abName)
+            {
+                resourcePaths.Add(kvp.Value.ResourcePath);
+            }
+        }
+
+        // 如果没有在配置中找到，从AssetDatabase查找
+        if (resourcePaths.Count == 0)
+        {
+            string[] guids = UnityEditor.AssetDatabase.FindAssets("", new[] { "Assets" });
+            foreach (string guid in guids)
+            {
+                string path = UnityEditor.AssetDatabase.GUIDToAssetPath(guid);
+                UnityEditor.AssetImporter importer = UnityEditor.AssetImporter.GetAtPath(path);
+                if (importer != null && importer.assetBundleName == abName)
+                {
+                    resourcePaths.Add(path);
+                }
+            }
+        }
+
+        int totalCount = resourcePaths.Count;
+
+        for (int i = 0; i < resourcePaths.Count; i++)
+        {
+            string path = resourcePaths[i];
+            Object asset = UnityEditor.AssetDatabase.LoadAssetAtPath<Object>(path);
+            if (asset != null)
+            {
+                loadedAssets.Add(asset);
+            }
+
+            float progress = (float)(i + 1) / totalCount;
+            progressCallback?.Invoke(progress);
+
+            // 每加载一个资源等待一帧
+            if (i % 5 == 0) // 每5个资源等待一帧，避免过于频繁
+            {
+                await UniTask.Yield();
+            }
+        }
+
+        progressCallback?.Invoke(1f);
+        LogSystem.Info($"编辑器模式：AB包 {abName} 预加载完成，共加载 {loadedAssets.Count} 个资源");
+
+        return loadedAssets.ToArray();
+#else
+        progressCallback?.Invoke(1f);
+        return null;
+#endif
+    }
+
+    /// <summary>
+    /// 取消预加载（编辑器环境下无实际操作，仅记录日志）
+    /// </summary>
+    public void CancelPreload(List<string> abNames)
+    {
+        if (abNames == null || abNames.Count == 0)
+            return;
+
+        LogSystem.Info($"编辑器模式：取消预加载 {abNames.Count} 个AB包");
+        // 编辑器模式下资源由Unity自动管理，无需手动释放
+    }
+
+    #endregion
 }
