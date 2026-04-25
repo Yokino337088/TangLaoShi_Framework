@@ -1,0 +1,9 @@
+{
+    "excelPath": "",
+    "dataClassPath": "",
+    "dataContainerPath": "",
+    "binaryOutputPath": "",
+    "jsonOutputPath": "",
+    "editorResRootPath": "Assets/资源统一放置点",
+    "abResourceConfigPath": "Assets/资源统一放置点/AB包配置文件/ABResourceConfig.json"
+}
